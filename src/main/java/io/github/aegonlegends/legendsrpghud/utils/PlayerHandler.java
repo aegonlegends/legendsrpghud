@@ -7,6 +7,10 @@ import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.world.entity.LivingEntity;
 
 public class PlayerHandler {
+    private PlayerHandler() {
+        /* This utility class should not be instantiated */
+    }
+
     public static PlayerSkin getPlayerSkin() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return null;

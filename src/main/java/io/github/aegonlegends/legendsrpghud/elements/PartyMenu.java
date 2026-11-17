@@ -1,10 +1,7 @@
 package io.github.aegonlegends.legendsrpghud.elements;
 
 import io.github.aegonlegends.legendsrpghud.LegendsRPGHUDClient;
-import io.github.aegonlegends.legendsrpghud.utils.HealthTracker;
-import io.github.aegonlegends.legendsrpghud.utils.PetFinder;
-import io.github.aegonlegends.legendsrpghud.utils.PlayerHandler;
-import io.github.aegonlegends.legendsrpghud.utils.TimeTextFormatter;
+import io.github.aegonlegends.legendsrpghud.utils.*;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -13,11 +10,13 @@ import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.PlayerSkin;
+import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -43,7 +42,8 @@ import java.util.*;
 @EventBusSubscriber(modid = LegendsRPGHUDClient.MODID, value = Dist.CLIENT)
 public class PartyMenu {
 
-    private static final int STARTING_X = 4, STARTING_Y = 24;
+    private static final int STARTING_X = 4;
+    private static final int STARTING_Y = 24;
 
     private static final RandomSource SHAKE_ANIM_RANDOM = RandomSource.create();
     private static final float REGEN_CYCLE_PADDING = 5f;
@@ -52,25 +52,31 @@ public class PartyMenu {
     private static final ResourceLocation BACKGROUND =
             ResourceLocation.fromNamespaceAndPath(LegendsRPGHUDClient.MODID, "textures/hud/backgrounds/partylist.png");
     private static final Map<String, ResourceLocation> HEARTS_ICONS;
+    private static final String DAMAGED_INDICATOR = "_blink";
+    private static final String VEHICLE_INDICATOR = "vehicle_";
+    private static final String ABSORPTION_INDICATOR = "absorbing_";
+
+    public static final String HEART_SPRITES_PATH = "hud/heart/";
+
     static {
         Map<String, ResourceLocation> map = new HashMap<>();
 
-        map.put("base", ResourceLocation.withDefaultNamespace("hud/heart/container"));
-        map.put("base_blink", ResourceLocation.withDefaultNamespace("hud/heart/container_blinking"));
+        map.put("base", ResourceLocation.withDefaultNamespace(HEART_SPRITES_PATH + "container"));
+        map.put("base" + DAMAGED_INDICATOR, ResourceLocation.withDefaultNamespace(HEART_SPRITES_PATH + "container_blinking"));
 
         for (String variant : new String[]{"", "poisoned_", "withered_"}) {
             for (String shape : new String[]{"full", "half"}) {
                 map.put(variant + shape,
-                        ResourceLocation.withDefaultNamespace("hud/heart/" + variant + shape));
-                map.put(variant + shape + "_blink",
-                        ResourceLocation.withDefaultNamespace("hud/heart/" + variant + shape + "_blinking"));
+                        ResourceLocation.withDefaultNamespace(HEART_SPRITES_PATH + variant + shape));
+                map.put(variant + shape + DAMAGED_INDICATOR,
+                        ResourceLocation.withDefaultNamespace(HEART_SPRITES_PATH + variant + shape + "_blinking"));
             }
         }
         for (String shape : new String[]{"full", "half"}) {
-            map.put("absorbing_" + shape,
-                    ResourceLocation.fromNamespaceAndPath(LegendsRPGHUDClient.MODID, "textures/hud/hearts/absorption_" + shape + ".png"));
-            map.put("vehicle_" + shape,
-                    ResourceLocation.withDefaultNamespace("hud/heart/" + "vehicle_" + shape));
+            map.put(ABSORPTION_INDICATOR + shape,
+                    ResourceLocation.fromNamespaceAndPath(LegendsRPGHUDClient.MODID, "textures/" + HEART_SPRITES_PATH + "absorption_" + shape + ".png"));
+            map.put(VEHICLE_INDICATOR + shape,
+                    ResourceLocation.withDefaultNamespace(HEART_SPRITES_PATH + VEHICLE_INDICATOR + shape));
         }
         HEARTS_ICONS = Map.copyOf(map);
     }
@@ -91,14 +97,13 @@ public class PartyMenu {
     private static final int DEBUFF_PRIORITY_SLOTS = 2;
     private static final int BUFF_PRIORITY_SLOTS = 1;
 
-
     @SubscribeEvent
     public static void drawMenu(RegisterGuiLayersEvent event) {
         event.registerAboveAll(
                 ResourceLocation.fromNamespaceAndPath(LegendsRPGHUDClient.MODID, "party_menu"),
                 (graphics, deltaTracker) -> {
                     drawPlayer(graphics);
-                    boolean petDrawn = drawPet(graphics);
+                    drawPet(graphics);
                 });
     }
 
@@ -111,19 +116,20 @@ public class PartyMenu {
         drawEffects(graphics);
     }
 
-    private static boolean drawPet(GuiGraphics graphics) {
+    private static void drawPet(GuiGraphics graphics) {
         LivingEntity pet = PetFinder.find((LocalPlayer) PlayerHandler.getPlayerEntity());
-        if(pet == null) return false;
+        if(pet == null) return;
         drawBackground(graphics);
         drawPetFace(graphics, pet);
         drawPetName(graphics, pet);
         drawPetHPBar(graphics, pet);
-        return true;
     }
 
     private static void drawBackground(GuiGraphics graphics, int i, boolean petBar) {
-        int texW = 128, texH = 64;
-        int cropW = 0, cropH = 36;
+        int texW = 128;
+        int texH = 64;
+        int cropW = 0;
+        int cropH = 36;
         int extraW = 16;
 
         if(petBar){
@@ -134,7 +140,7 @@ public class PartyMenu {
         RenderSystem.defaultBlendFunc();
         graphics.blit(BACKGROUND, STARTING_X, STARTING_Y + (28 * i),
                 (texW - cropW) + extraW, texH - cropH,
-                cropW, cropH,
+                (float) cropW, (float) cropH,
                 texW - cropW, texH - cropH,
                 texW, texH);
         RenderSystem.disableBlend();
@@ -161,7 +167,7 @@ public class PartyMenu {
         if (itemForIcon == null) return;
 
         graphics.pose().pushPose();
-        graphics.pose().translate(STARTING_X + 19, STARTING_Y + 30, 0);
+        graphics.pose().translate((float)STARTING_X + 19, (float)STARTING_Y + 30, 0);
         graphics.pose().scale(1, 1, 1);
         graphics.renderItem(new ItemStack(itemForIcon), 0, 0);
         graphics.pose().popPose();
@@ -178,7 +184,7 @@ public class PartyMenu {
         MutableComponent playerLevelText = Component.literal("Lv " + playerLevel + " ").withStyle(ChatFormatting.ITALIC);
 
         graphics.pose().pushPose();
-        graphics.pose().translate(STARTING_X +28, STARTING_Y +2, 0);
+        graphics.pose().translate((float)STARTING_X +28, (float)STARTING_Y +2, 0);
         graphics.pose().scale(0.75f, 0.75f, 1.0f);
 
         graphics.drawString(font, playerLevelText.append(playerNameText),0,0, 0xFFFFFFFF);
@@ -193,7 +199,7 @@ public class PartyMenu {
         MutableComponent playerNameText = Component.literal(name);
 
         graphics.pose().pushPose();
-        graphics.pose().translate(STARTING_X +27+11, STARTING_Y + 2 + 28, 0);
+        graphics.pose().translate((float)STARTING_X +27+11, (float)STARTING_Y + 2 + 28, 0);
         graphics.pose().scale(0.75f, 0.75f, 1.0f);
 
         graphics.drawString(font,playerNameText,0,0, 0xFFFFFFFF);
@@ -224,10 +230,10 @@ public class PartyMenu {
     }
 
     private static void drawHeart(GuiGraphics graphics, int x, int y, boolean blinking, String blinkingHP, String hp, String absorption){
-        graphics.blitSprite(HEARTS_ICONS.get("base" + (blinking ? "_blink" : "")), x, y, ICON_SIZE, ICON_SIZE);
+        graphics.blitSprite(HEARTS_ICONS.get("base" + (blinking ? DAMAGED_INDICATOR : "")), x, y, ICON_SIZE, ICON_SIZE);
         if(hp != null) {
             if (blinkingHP != null)
-                graphics.blitSprite(HEARTS_ICONS.get(hp + "_blink"), x, y, ICON_SIZE, ICON_SIZE);
+                graphics.blitSprite(HEARTS_ICONS.get(hp + DAMAGED_INDICATOR), x, y, ICON_SIZE, ICON_SIZE);
             graphics.blitSprite(HEARTS_ICONS.get(hp), x, y, ICON_SIZE, ICON_SIZE);
         }
         if(absorption != null)
@@ -240,8 +246,8 @@ public class PartyMenu {
         if(maxHealth == null || player == null) return;
 
         HealthData.update();
-        float currentHealth = HealthData.health();
-        float previousHealth = HealthData.previousHealth();
+        float currentHealth = (float) HealthData.health();
+        float previousHealth = (float) HealthData.previousHealth();
         boolean blinking = HealthData.isBlinking();
 
         // Variant heart colors
@@ -280,7 +286,7 @@ public class PartyMenu {
             drawHeart(graphics, localX, localY, blinking,
                     (drawPreviousHP.value != null ? heartPrefix + drawPreviousHP.value : null),
                     (drawHP.value != null ? heartPrefix + drawHP.value : null),
-                    (drawAbsorption.value != null ? "absorbing_" + drawAbsorption.value : null)
+                    (drawAbsorption.value != null ? ABSORPTION_INDICATOR + drawAbsorption.value : null)
                     );
         }
         RenderSystem.disableBlend();
@@ -304,25 +310,24 @@ public class PartyMenu {
             int localX = STARTING_X + 26 + 21 + (i % 10) * (ICON_SIZE - 1) + Mth.floor(i / 10f) * 4;
             int localY = baseY + Mth.floor(i / 10f) * (ICON_SIZE - 1);
             if (lowHealth) localY += SHAKE_ANIM_RANDOM.nextInt(2);
-            // if (i == regenAnimHeartIndex) localY -= 2;
 
             HEART_FILL drawHP = getHeartFill(i, (int) currentHealth);
             HEART_FILL drawAbsorption = getHeartFill(i, absorption);
 
             graphics.pose().pushPose();
-            graphics.pose().translate(localX, localY, 0);
+            graphics.pose().translate((float)localX, (float)localY, 0);
             graphics.pose().scale(-1f, 1f, 1f);
             drawHeart(graphics, 0, 0, false,
                     null,
-                    (drawHP.value != null ? "vehicle_" + drawHP.value : null),
-                    (drawAbsorption.value != null ? "absorbing_" + drawAbsorption.value : null)
+                    (drawHP.value != null ? VEHICLE_INDICATOR + drawHP.value : null),
+                    (drawAbsorption.value != null ? ABSORPTION_INDICATOR + drawAbsorption.value : null)
             );
             graphics.pose().popPose();
         }
         RenderSystem.disableBlend();
         RenderSystem.enableCull();
     }
-    public static void drawFood(GuiGraphics graphics) {
+    private static void drawFood(GuiGraphics graphics) {
         Player player = (Player) PlayerHandler.getPlayerEntity();
         if (player == null) return;
 
@@ -343,7 +348,7 @@ public class PartyMenu {
             int localY = baseY;
             if (shaking) localY += SHAKE_ANIM_RANDOM.nextInt(3) - 1;
             graphics.pose().pushPose();
-            graphics.pose().translate(localX, localY, 0);
+            graphics.pose().translate((float)localX, (float)localY, 0);
             graphics.pose().scale(-1f, 1f, 1f);
             graphics.blitSprite(FOOD_ICONS.get("empty" + variant), 0, 0, ICON_SIZE, ICON_SIZE);
 
@@ -358,98 +363,76 @@ public class PartyMenu {
         RenderSystem.enableCull();
     }
 
-    public static int drawEffect(GuiGraphics graphics, List<MobEffectInstance> effects, int limit, int offsetIndex){
-        MobEffectInstance effect;
+    private static void drawEffect(GuiGraphics graphics, MobEffectInstance effect, int position){
         int localX = STARTING_X + 102;
         int localY = STARTING_Y + 10;
-        int i = 0;
 
-        for (; i + offsetIndex < limit && i < effects.size(); i++) {
-            // Grab the effect and remove it from the list
-            effect = effects.getFirst();
-            effects.removeFirst();
+        TextureAtlasSprite sprite = Minecraft.getInstance().getMobEffectTextures().get(effect.getEffect());
+        Font font = Minecraft.getInstance().font;
+        int spacing = (11 * position);
 
-            TextureAtlasSprite sprite = Minecraft.getInstance().getMobEffectTextures().get(effect.getEffect());
-            Font font = Minecraft.getInstance().font;
-            int spacing = (11 * (i + offsetIndex));
+        RenderSystem.enableBlend();
+        graphics.blit(localX + spacing, localY, 0, ICON_SIZE, ICON_SIZE, sprite);
+        RenderSystem.disableBlend();
 
-            RenderSystem.enableBlend();
-            graphics.blit(localX + spacing, localY, 0, ICON_SIZE, ICON_SIZE, sprite);
-            RenderSystem.disableBlend();
+        String text = TimeTextFormatter.ticksToCompactTimeString(effect.isInfiniteDuration() ? -1 : effect.getDuration());
+        float scale = 0.5f;
+        float width = font.width(text) * scale;
 
-            String text = TimeTextFormatter.ticksToCompactTimeString(effect.isInfiniteDuration() ? -1 : effect.getDuration());
-            float scale = 0.5f;
-            float width = font.width(text) * scale;
-
-            graphics.pose().pushPose();
-            graphics.pose().translate(localX + (ICON_SIZE/2.0f) - (width/2.0f) + spacing, localY + 2 + ICON_SIZE, 0);
-            graphics.pose().scale(scale, scale, 1f);
-            graphics.drawString(font, text, 0, 0, 0xFFFFFFFF, true);
-            graphics.pose().popPose();
-        }
-        return i;
+        graphics.pose().pushPose();
+        graphics.pose().translate(localX + (ICON_SIZE/2.0f) - (width/2.0f) + spacing, localY + 2.0f + ICON_SIZE, 0);
+        graphics.pose().scale(scale, scale, 1f);
+        graphics.drawString(font, text, 0, 0, 0xFFFFFFFF, true);
+        graphics.pose().popPose();
     }
 
-    public static void drawEffects(GuiGraphics graphics) {
-        Player player = (Player) PlayerHandler.getPlayerEntity();
-        if (player == null) return;
+    private static List<MobEffectInstance> prioritizeEffects(
+            List<MobEffectInstance> effects, List<Holder<MobEffect>> prioritizedEffects) {
 
-        Iterator<MobEffectInstance> effects = player.getActiveEffects().iterator();
+        List<MobEffectInstance> ordered = new ArrayList<>();
+
+        for (Holder<MobEffect> prioritized : prioritizedEffects) {
+            effects.stream()
+                    .filter(e -> e.getEffect().equals(prioritized) && !e.isInfiniteDuration())
+                    .findFirst()
+                    .ifPresent(ordered::add);
+        }
+
+        for (MobEffectInstance effect : effects) {
+            if (prioritizedEffects.contains(effect.getEffect()) || effect.isInfiniteDuration()) continue;
+            ordered.add(effect);
+        }
+        return ordered;
+    }
+
+    private static void drawEffects(GuiGraphics graphics) {
+        EffectHelper.EffectLists effectLists = EffectHelper.getEffects(PlayerHandler.getPlayerEntity());
+        List<MobEffectInstance> effects = new ArrayList<>();
         List<MobEffectInstance> buffs = new ArrayList<>();
         List<MobEffectInstance> debuffs = new ArrayList<>();
-        List<MobEffectInstance> neutrals = new ArrayList<>();
+        List<MobEffectInstance> neutrals;
 
-        // Priority effect holders
-        MobEffectInstance absorption = null;
-        MobEffectInstance poison = null;
-        MobEffectInstance wither = null;
+        assert effectLists != null;
+        if(effectLists.buffs() != null && !effectLists.buffs().isEmpty())
+            buffs = prioritizeEffects(effectLists.buffs(), List.of(MobEffects.ABSORPTION));
+        if(effectLists.debuffs() != null && !effectLists.debuffs().isEmpty())
+            debuffs = prioritizeEffects(effectLists.debuffs(), List.of(MobEffects.POISON, MobEffects.WITHER));
+        neutrals = effectLists.neutrals();
 
-        if(!effects.hasNext()) return;
-        MobEffectInstance effect;
+        int i;
+        for(i=0; i < BUFF_PRIORITY_SLOTS && i < buffs.size(); i++) {
+            effects.add(buffs.get(i));
+        }
+        for(i=0; i < DEBUFF_PRIORITY_SLOTS && i < debuffs.size(); i++) {
+            effects.add(debuffs.get(i));
+        }
+        for(i=0; i + effects.size() < MAX_EFFECTS && i < neutrals.size(); i++) {
+            effects.add(neutrals.get(i));
+        }
 
-        do{
-            effect = effects.next();
-            if(!effect.showIcon()) continue;
-            if(effect.isInfiniteDuration()) continue;
-
-            // Special cases
-            if(effect.getEffect() == MobEffects.ABSORPTION){
-                absorption = effect; continue;
-            }
-            if(effect.getEffect() == MobEffects.POISON){
-                poison = effect; continue;
-            }
-            if(effect.getEffect() == MobEffects.WITHER){
-                wither = effect; continue;
-            }
-
-            // Regular effects
-            switch (effect.getEffect().value().getCategory()){
-                case BENEFICIAL :
-                    buffs.add(effect); continue;
-                case HARMFUL:
-                    debuffs.add(effect); continue;
-                case NEUTRAL:
-                    neutrals.add(effect);
-            }
-        } while(effects.hasNext());
-
-        if(absorption != null) buffs.addFirst(absorption);
-        if(wither != null) debuffs.addFirst(wither); // Wither first is added first so Poison shows before it
-        if(poison != null) debuffs.addFirst(poison);
-
-        int drawnEffects = 0;
-        if(!debuffs.isEmpty())
-            drawnEffects += drawEffect(graphics, debuffs, DEBUFF_PRIORITY_SLOTS, drawnEffects);
-        if(!buffs.isEmpty())
-            drawnEffects += drawEffect(graphics, buffs, DEBUFF_PRIORITY_SLOTS + BUFF_PRIORITY_SLOTS, drawnEffects);
-        if(!neutrals.isEmpty())
-            drawnEffects += drawEffect(graphics, neutrals, MAX_EFFECTS, drawnEffects);
-
-        // If there is leftover space
-        drawnEffects += drawEffect(graphics, debuffs, MAX_EFFECTS, drawnEffects);
-        drawnEffects += drawEffect(graphics, buffs, MAX_EFFECTS, drawnEffects);
-        drawEffect(graphics, neutrals, MAX_EFFECTS, drawnEffects);
+        for (i = 0; i < effects.size(); i++) {
+            drawEffect(graphics, effects.get(i), i);
+        }
     }
 
     @SubscribeEvent
